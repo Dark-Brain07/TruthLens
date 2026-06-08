@@ -154,6 +154,11 @@ function App() {
     setLoadingText('AI Validators cross-referencing sources...');
 
     if (txHash) {
+      // Professional timer to inform user if network is slow
+      const slowNetworkTimer = setTimeout(() => {
+        setLoadingText('GenLayer network load is high. AI Validators are performing deep cross-reference checks. Please hold...');
+      }, 12000);
+
       // Loop until GenLayer actually finalizes the transaction (guarantees 100% real data)
       let finalized = false;
       while (!finalized) {
@@ -168,6 +173,8 @@ function App() {
           await new Promise(r => setTimeout(r, 2000)); // wait 2s and try again
         }
       }
+
+      clearTimeout(slowNetworkTimer);
 
       setStep(3);
       setLoadingText('Reading final consensus verdict from blockchain...');
