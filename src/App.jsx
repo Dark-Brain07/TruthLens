@@ -154,59 +154,50 @@ function App() {
     setLoadingText('AI Validators cross-referencing sources...');
 
     if (txHash) {
-      try {
-        await glClient.waitForTransactionReceipt({
-          hash: txHash,
-          status: TransactionStatus.FINALIZED,
-        });
-
-        setStep(3);
-        setLoadingText('Reading consensus verdict...');
-        await new Promise(r => setTimeout(r, 800));
-
-        // Read real verdict
-        const result = await glClient.readContract({
-          address: CONTRACT_ADDRESS,
-          functionName: 'get_last_verdict',
-          args: [],
-        });
-
-        const v = (result || '').toUpperCase().trim();
-        if (v.includes('TRUE') && !v.includes('FALSE') && !v.includes('UNVERIFIED')) setVerdict('TRUE');
-        else if (v.includes('FALSE')) setVerdict('FALSE');
-        else setVerdict('UNVERIFIED');
-
-        setStatus('complete');
-
-        // Refresh stats
+      // Loop until GenLayer actually finalizes the transaction (guarantees 100% real data)
+      let finalized = false;
+      while (!finalized) {
         try {
-          const s = await glClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_stats', args: [] });
-          parseStats(s);
-        } catch { }
-        return;
-      } catch (err) {
-        console.warn('Receipt wait failed:', err);
+          await glClient.waitForTransactionReceipt({
+            hash: txHash,
+            status: TransactionStatus.FINALIZED,
+          });
+          finalized = true;
+        } catch (err) {
+          console.warn('Network congested, still waiting for consensus...');
+          await new Promise(r => setTimeout(r, 2000)); // wait 2s and try again
+        }
       }
+
+      setStep(3);
+      setLoadingText('Reading final consensus verdict from blockchain...');
+      await new Promise(r => setTimeout(r, 800));
+
+      // Read 100% REAL verdict from contract
+      const result = await glClient.readContract({
+        address: CONTRACT_ADDRESS,
+        functionName: 'get_last_verdict',
+        args: [],
+      });
+
+      const v = (result || '').toUpperCase().trim();
+      if (v.includes('TRUE') && !v.includes('FALSE') && !v.includes('UNVERIFIED')) setVerdict('TRUE');
+      else if (v.includes('FALSE')) setVerdict('FALSE');
+      else setVerdict('UNVERIFIED');
+
+      setStatus('complete');
+
+      // Refresh real stats
+      try {
+        const s = await glClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_stats', args: [] });
+        parseStats(s);
+      } catch { }
+      return;
     }
 
-    // Fallback animation
-    await new Promise(r => setTimeout(r, 1800));
-    setStep(3);
-    setLoadingText('Finalizing equivalence principle check...');
-    await new Promise(r => setTimeout(r, 1500));
-
-    const verdicts = ['TRUE', 'FALSE', 'UNVERIFIED'];
-    const finalVerdict = verdicts[Math.floor(Math.random() * 3)];
-    setVerdict(finalVerdict);
-    
-    // Update stats locally for immediate UI feedback
-    setStats(prev => ({
-      ...prev,
-      total: prev.total + 1,
-      [finalVerdict.toLowerCase()]: prev[finalVerdict.toLowerCase()] + 1
-    }));
-    
-    setStatus('complete');
+    // If there was an absolute failure initiating the tx (txHash is null)
+    setStatus('idle');
+    alert("Transaction failed to broadcast. Please try again.");
   };
 
   const verdictConfig = {
